@@ -1,0 +1,25 @@
+services:
+  meeting-notes:
+    build: .
+    environment:
+      LLM_MODEL: ${LLM_MODEL:-qwen2.5:14b}
+      WHISPER_MODEL: ${WHISPER_MODEL:-large-v3}
+      COMPUTE_TYPE: float16
+      LANGUAGE: ${LANGUAGE:-es}
+      PROMPT_TEMPLATE: ${PROMPT_TEMPLATE:-general}
+    volumes:
+      - ./audios:/app/audios
+      - ./prompts:/app/prompts
+      - whisper-cache:/root/.cache/huggingface
+      - ollama-models:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  whisper-cache:
+  ollama-models:
