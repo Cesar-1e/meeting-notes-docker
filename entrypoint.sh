@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-LLM_MODEL="${LLM_MODEL:-qwen2.5:14b}"
+LLM_MODEL="${LLM_MODEL:-qwen3.5:9b}"
 PROMPTS_DIR="${PROMPTS_DIR:-/app/prompts}"
 
 # Seed: crea cada prompt real a partir de su .md.example si todavía no existe.

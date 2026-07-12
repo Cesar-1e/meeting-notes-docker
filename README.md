@@ -53,7 +53,7 @@ docker compose build
 docker compose run --rm meeting-notes
 ```
 
-En la primera corrida se descargan el modelo de Whisper (`large-v3`) y el LLM (`qwen2.5:14b`);
+En la primera corrida se descargan el modelo de Whisper (`large-v3`) y el LLM (`qwen3.5:9b`);
 quedan cacheados en los volúmenes `whisper-cache` y `ollama-models`, así que las corridas
 siguientes no vuelven a descargar nada.
 
@@ -104,7 +104,7 @@ Si querés compartir un tipo de reunión con el equipo, versioná también un `p
 | `COMPUTE_TYPE` | `float16` | Tipo de cómputo de Whisper. **No cambiar:** en Blackwell `int8` crashea con `CUBLAS_STATUS_NOT_SUPPORTED` |
 | `LANGUAGE` | `es` | Idioma de la transcripción |
 | `PROMPT_TEMPLATE` | `general` | Plantilla default cuando el audio no tiene sufijo `__<tipo>` |
-| `LLM_MODEL` | `qwen2.5:14b` | Modelo de Ollama para generar la minuta |
+| `LLM_MODEL` | `qwen3.5:9b` | Modelo de Ollama para generar la minuta |
 | `OLLAMA_HOST` | `http://localhost:11434` | URL del servidor Ollama |
 
 Ejemplo con overrides:

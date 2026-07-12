@@ -15,7 +15,7 @@ WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "large-v3")
 COMPUTE_TYPE = os.environ.get("COMPUTE_TYPE", "float16")
 LANGUAGE = os.environ.get("LANGUAGE", "es")
 PROMPT_TEMPLATE = os.environ.get("PROMPT_TEMPLATE", "general")
-LLM_MODEL = os.environ.get("LLM_MODEL", "qwen2.5:14b")
+LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3.5:9b")
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv"}
