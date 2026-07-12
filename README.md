@@ -47,7 +47,7 @@ Si ese comando muestra tu GPU, estás listo.
 # 1. Build de la imagen
 docker compose build
 
-# 2. Dejá tus audios en ./audios/ (mp3, wav, m4a, ogg, flac, mp4)
+# 2. Dejá tus audios o videos en ./audios/ (mp3, wav, m4a, ogg, flac, mp4, mkv)
 
 # 3. Corré el pipeline
 docker compose run --rm meeting-notes
@@ -58,6 +58,12 @@ quedan cacheados en los volúmenes `whisper-cache` y `ollama-models`, así que l
 siguientes no vuelven a descargar nada.
 
 Al terminar, por cada `audios/<nombre>.<ext>` vas a tener un `audios/<nombre>_notas.md`.
+
+Los videos (`.mp4`, `.mkv`) también se procesan: antes de transcribir se les extrae la pista de
+audio con ffmpeg (WAV 16 kHz mono, en un temporal que se descarta al terminar).
+
+Las corridas son incrementales: si ya existe `<nombre>_notas.md`, ese audio/video se salta.
+Para regenerar una minuta, borrá (o renombrá) el `.md` y volvé a correr.
 
 ## Tipos de reunión (prompts)
 

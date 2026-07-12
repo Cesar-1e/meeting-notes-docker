@@ -1,5 +1,7 @@
 import os
+import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -16,7 +18,8 @@ PROMPT_TEMPLATE = os.environ.get("PROMPT_TEMPLATE", "general")
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen2.5:14b")
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
-AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".mp4"}
+VIDEO_EXTENSIONS = {".mp4", ".mkv"}
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".ogg", ".flac"} | VIDEO_EXTENSIONS
 
 
 def resolve_template(audio_path: Path) -> Path:
@@ -41,6 +44,24 @@ def resolve_template(audio_path: Path) -> Path:
         )
         template_path = Path(PROMPTS_DIR) / "general.md"
     return template_path
+
+
+def extract_audio(video_path: Path, tmp_dir: str) -> Path:
+    """Extrae la pista de audio de un video a WAV 16 kHz mono con ffmpeg."""
+    wav_path = Path(tmp_dir) / f"{video_path.stem}.wav"
+    result = subprocess.run(
+        [
+            "ffmpeg", "-y", "-i", str(video_path),
+            "-vn", "-ac", "1", "-ar", "16000",
+            str(wav_path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        stderr_tail = result.stderr.strip().splitlines()[-1] if result.stderr else ""
+        raise RuntimeError(f"ffmpeg falló extrayendo audio: {stderr_tail}")
+    return wav_path
 
 
 def transcribe(model: WhisperModel, audio_path: Path) -> str:
@@ -76,7 +97,23 @@ def main() -> None:
         print(f"No se encontraron audios en {audio_dir}. Nada que hacer.")
         return
 
-    print(f"Encontrados {len(audio_files)} audio(s) en {audio_dir}")
+    pending = []
+    for p in audio_files:
+        if (output_dir / f"{p.stem}_notas.md").exists():
+            print(f"Saltando {p.name}: ya existe {p.stem}_notas.md")
+        else:
+            pending.append(p)
+
+    skipped = len(audio_files) - len(pending)
+    if not pending:
+        print(f"Los {skipped} audio(s) ya tienen su minuta. Nada que hacer.")
+        return
+
+    print(
+        f"Encontrados {len(audio_files)} audio(s) en {audio_dir}: "
+        f"{len(pending)} pendiente(s), {skipped} ya procesado(s)"
+    )
+    audio_files = pending
     print(f"Cargando Whisper '{WHISPER_MODEL}' (device=cuda, compute_type={COMPUTE_TYPE})...")
     model = WhisperModel(WHISPER_MODEL, device="cuda", compute_type=COMPUTE_TYPE)
     print("Modelo cargado.\n")
@@ -92,7 +129,13 @@ def main() -> None:
             system_prompt = template_path.read_text(encoding="utf-8")
 
             start = time.time()
-            transcript = transcribe(model, audio_path)
+            if audio_path.suffix.lower() in VIDEO_EXTENSIONS:
+                with tempfile.TemporaryDirectory() as tmp_dir:
+                    print("  Video detectado, extrayendo audio con ffmpeg...")
+                    wav_path = extract_audio(audio_path, tmp_dir)
+                    transcript = transcribe(model, wav_path)
+            else:
+                transcript = transcribe(model, audio_path)
             elapsed = time.time() - start
             print(
                 f"  Transcripción: {elapsed:.1f}s, "
