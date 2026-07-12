@@ -1,3 +1,4 @@
 __pycache__/
 audios/
+!audios/.gitkeep
 prompts/*.md
