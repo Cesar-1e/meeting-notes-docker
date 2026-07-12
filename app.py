@@ -1,3 +1,4 @@
+import gc
 import os
 import subprocess
 import sys
@@ -17,6 +18,8 @@ LANGUAGE = os.environ.get("LANGUAGE", "es")
 PROMPT_TEMPLATE = os.environ.get("PROMPT_TEMPLATE", "general")
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3.5:9b")
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+NUM_CTX = int(os.environ.get("NUM_CTX", "16384"))
+NUM_GPU = os.environ.get("NUM_GPU", "")  # capas del LLM en GPU; vacío = auto
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv"}
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".ogg", ".flac"} | VIDEO_EXTENSIONS
@@ -71,9 +74,27 @@ def transcribe(model: WhisperModel, audio_path: Path) -> str:
 
 def generate_notes(system_prompt: str, transcript: str) -> str:
     prompt = f"{system_prompt}\n\nTranscripción:\n{transcript}"
+
+    # ~3.5 caracteres por token en español; margen para la respuesta.
+    estimated_tokens = len(prompt) // 3
+    if estimated_tokens > NUM_CTX:
+        print(
+            f"  WARNING: prompt ~{estimated_tokens} tokens > NUM_CTX={NUM_CTX}; "
+            f"Ollama truncará la transcripción. Subí NUM_CTX si tenés VRAM libre."
+        )
+
+    options = {"num_ctx": NUM_CTX, "num_predict": -1}
+    if NUM_GPU:
+        options["num_gpu"] = int(NUM_GPU)
+
     response = requests.post(
         f"{OLLAMA_HOST}/api/generate",
-        json={"model": LLM_MODEL, "prompt": prompt, "stream": False},
+        json={
+            "model": LLM_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "options": options,
+        },
         timeout=600,
     )
     response.raise_for_status()
@@ -121,8 +142,10 @@ def main() -> None:
     total = len(audio_files)
     ok, failed = 0, 0
 
+    # Fase 1: transcribir todo con Whisper.
+    jobs = []
     for i, audio_path in enumerate(audio_files, start=1):
-        print(f"[{i}/{total}] {audio_path.name}")
+        print(f"[{i}/{total}] Transcribiendo {audio_path.name}")
         try:
             template_path = resolve_template(audio_path)
             print(f"  Plantilla: {template_path.name}")
@@ -139,12 +162,23 @@ def main() -> None:
             elapsed = time.time() - start
             print(
                 f"  Transcripción: {elapsed:.1f}s, "
-                f"{len(transcript)} caracteres"
+                f"{len(transcript)} caracteres\n"
             )
+            jobs.append((audio_path, system_prompt, transcript))
+        except Exception as e:
+            print(f"  ERROR transcribiendo {audio_path.name}: {e}\n")
+            failed += 1
 
-            print(f"  Generando minuta con {LLM_MODEL}...")
+    # Liberar la VRAM de Whisper antes de generar: el LLM dispone de ~3 GB más.
+    del model
+    gc.collect()
+    print("Whisper descargado de la GPU.\n")
+
+    # Fase 2: generar las minutas con el LLM.
+    for i, (audio_path, system_prompt, transcript) in enumerate(jobs, start=1):
+        print(f"[{i}/{len(jobs)}] Generando minuta de {audio_path.name} con {LLM_MODEL}")
+        try:
             notes = generate_notes(system_prompt, transcript)
-
             output_path = output_dir / f"{audio_path.stem}_notas.md"
             output_path.write_text(notes, encoding="utf-8")
             print(f"  OK: {output_path.name}\n")

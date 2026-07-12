@@ -105,6 +105,8 @@ Si querés compartir un tipo de reunión con el equipo, versioná también un `p
 | `LANGUAGE` | `es` | Idioma de la transcripción |
 | `PROMPT_TEMPLATE` | `general` | Plantilla default cuando el audio no tiene sufijo `__<tipo>` |
 | `LLM_MODEL` | `qwen3.5:9b` | Modelo de Ollama para generar la minuta |
+| `NUM_CTX` | `16384` | Ventana de contexto del LLM en tokens. Si la minuta sale cortada, subilo (32768 para reuniones de +1 h); más contexto = más VRAM |
+| `NUM_GPU` | *(auto)* | Cantidad de capas del LLM que van a la GPU; el resto corre en CPU/RAM. Vacío = Ollama decide solo |
 | `OLLAMA_HOST` | `http://localhost:11434` | URL del servidor Ollama |
 
 Ejemplo con overrides:
@@ -112,6 +114,32 @@ Ejemplo con overrides:
 ```bash
 LLM_MODEL=llama3.1:8b PROMPT_TEMPLATE=retro docker compose run --rm meeting-notes
 ```
+
+## Aprovechar la RAM: modelos más grandes y más contexto
+
+La VRAM (16 GB) limita qué modelo y cuánto contexto entran en la GPU, pero no es un techo duro:
+
+- **Offload a RAM (automático):** si el modelo no cabe en VRAM, Ollama pone en la GPU las capas
+  que quepan y el resto corre en CPU usando la RAM. Con 96 GB de RAM podés correr modelos grandes
+  directamente — solo cambia la velocidad (las capas en CPU son mucho más lentas):
+
+  ```bash
+  LLM_MODEL=qwen3.5:32b docker compose run --rm meeting-notes
+  ```
+
+  Con `NUM_GPU` podés forzar cuántas capas van a la GPU si el reparto automático no convence.
+- **La "memoria compartida de GPU" de Windows NO es el camino:** ese spillover de VRAM a RAM del
+  driver (WDDM) no aplica dentro de WSL2 y, cuando actúa, mueve datos por PCIe sin criterio y
+  degrada todo. El offload por capas de Ollama hace lo mismo pero de forma controlada y eficiente.
+- **El pipeline procesa en dos fases** justamente para maximizar la VRAM disponible: primero
+  transcribe todos los audios con Whisper, descarga Whisper de la GPU (~3 GB liberados) y recién
+  entonces genera las minutas con el LLM.
+- **KV cache más chico = más contexto:** para reuniones muy largas podés cuantizar el KV cache y
+  duplicar el contexto que entra en la misma VRAM:
+
+  ```bash
+  OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 NUM_CTX=32768 docker compose run --rm meeting-notes
+  ```
 
 ## Notas técnicas
 
@@ -122,3 +150,7 @@ LLM_MODEL=llama3.1:8b PROMPT_TEMPLATE=retro docker compose run --rm meeting-note
 - El contenedor es efímero (`--rm`); los modelos persisten solo gracias a los volúmenes nombrados.
 - Un error en un archivo (audio corrupto, timeout del LLM, etc.) no corta el batch: se loguea y
   se sigue con el siguiente.
+- **Minutas cortadas a mitad de frase:** Ollama usa por defecto una ventana de contexto de 4096
+  tokens; con transcripciones largas trunca la entrada y corta la salida. Por eso la llamada a
+  `/api/generate` pasa `num_ctx` explícito (variable `NUM_CTX`, default 16384). Si aun así sale
+  incompleta, subí `NUM_CTX` — el límite práctico es la VRAM (el KV cache crece con el contexto).
