@@ -2,6 +2,18 @@
 set -e
 
 LLM_MODEL="${LLM_MODEL:-qwen2.5:14b}"
+PROMPTS_DIR="${PROMPTS_DIR:-/app/prompts}"
+
+# Seed: crea cada prompt real a partir de su .md.example si todavía no existe.
+shopt -s nullglob
+for example in "${PROMPTS_DIR}"/*.md.example; do
+    target="${example%.example}"
+    if [ ! -e "${target}" ]; then
+        cp "${example}" "${target}"
+        echo "Prompt creado desde example: $(basename "${target}")"
+    fi
+done
+shopt -u nullglob
 
 ollama serve &
 

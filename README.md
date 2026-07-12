@@ -19,10 +19,10 @@ meeting-notes-docker/
 ├── requirements.txt      # dependencias pinneadas
 ├── app.py                # el pipeline (batch sobre audios/)
 ├── prompts/              # plantillas de prompt por tipo de reunión
-│   ├── general.md
-│   ├── standup.md
-│   ├── retro.md
-│   └── cliente.md
+│   ├── general.md.example
+│   ├── standup.md.example
+│   ├── retro.md.example
+│   └── cliente.md.example
 ├── audios/               # dejá acá tus audios; las minutas se escriben acá también
 └── README.md
 ```
@@ -68,7 +68,15 @@ Para regenerar una minuta, borrá (o renombrá) el `.md` y volvé a correr.
 ## Tipos de reunión (prompts)
 
 Cada tipo de reunión tiene su plantilla en `prompts/<tipo>.md` (texto plano con la instrucción
-de sistema para el LLM). La selección funciona así, en orden de precedencia:
+de sistema para el LLM).
+
+En el repo solo se versionan los ejemplos (`prompts/*.md.example`); los `.md` reales están en
+`.gitignore` porque son personales de cada uno. En el primer arranque, el entrypoint crea
+automáticamente cada `<tipo>.md` que falte copiándolo de su `.md.example` — después podés
+editarlos libremente sin que git los toque. Para volver al ejemplo original, borrá tu `.md`
+y volvé a correr.
+
+La selección de plantilla funciona así, en orden de precedencia:
 
 1. **Sufijo en el nombre del archivo:** si el audio termina en `__<tipo>` antes de la extensión,
    se usa `prompts/<tipo>.md`. Ejemplo: `daily-2026-07-11__standup.mp3` → `prompts/standup.md`.
@@ -79,10 +87,11 @@ Así una misma carpeta puede mezclar reuniones de distinto tipo y cada una se pr
 
 ### Agregar un nuevo tipo de reunión
 
-1. Creá `prompts/<tipo>.md` con la instrucción para el LLM (mirá los existentes como ejemplo).
+1. Creá `prompts/<tipo>.md` con la instrucción para el LLM (mirá los `.md.example` como referencia).
 2. Nombrá el audio `loquesea__<tipo>.mp3` (o la extensión que sea).
 
 Como `./prompts` está montado como volumen, podés crear o editar plantillas sin rebuildear la imagen.
+Si querés compartir un tipo de reunión con el equipo, versioná también un `prompts/<tipo>.md.example`.
 
 ## Variables de entorno
 
