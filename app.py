@@ -18,8 +18,12 @@ LANGUAGE = os.environ.get("LANGUAGE", "es")
 PROMPT_TEMPLATE = os.environ.get("PROMPT_TEMPLATE", "general")
 LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3.5:9b")
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-NUM_CTX = int(os.environ.get("NUM_CTX", "16384"))
+NUM_CTX = int(os.environ.get("NUM_CTX", "32768"))
 NUM_GPU = os.environ.get("NUM_GPU", "")  # capas del LLM en GPU; vacío = auto
+THINK = os.environ.get("THINK", "false").lower() == "true"
+
+# Tokens de contexto que se reservan para la minuta (el resto es para el prompt).
+RESPONSE_TOKENS = 4096
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv"}
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".m4a", ".ogg", ".flac"} | VIDEO_EXTENSIONS
@@ -75,30 +79,60 @@ def transcribe(model: WhisperModel, audio_path: Path) -> str:
 def generate_notes(system_prompt: str, transcript: str) -> str:
     prompt = f"{system_prompt}\n\nTranscripción:\n{transcript}"
 
-    # ~3.5 caracteres por token en español; margen para la respuesta.
-    estimated_tokens = len(prompt) // 3
-    if estimated_tokens > NUM_CTX:
+    # ~4 caracteres por token en español; el contexto tiene que alojar el prompt
+    # Y la minuta, si no el modelo se queda sin tokens antes de terminarla.
+    estimated_tokens = len(prompt) // 4
+    if estimated_tokens + RESPONSE_TOKENS > NUM_CTX:
+        sugerido = 2 ** (estimated_tokens + RESPONSE_TOKENS - 1).bit_length()
         print(
-            f"  WARNING: prompt ~{estimated_tokens} tokens > NUM_CTX={NUM_CTX}; "
-            f"Ollama truncará la transcripción. Subí NUM_CTX si tenés VRAM libre."
+            f"  WARNING: prompt ~{estimated_tokens} tokens + {RESPONSE_TOKENS} "
+            f"reservados > NUM_CTX={NUM_CTX}; la minuta puede salir truncada. "
+            f"Probá con NUM_CTX={sugerido}."
         )
 
     options = {"num_ctx": NUM_CTX, "num_predict": -1}
     if NUM_GPU:
         options["num_gpu"] = int(NUM_GPU)
 
-    response = requests.post(
-        f"{OLLAMA_HOST}/api/generate",
-        json={
-            "model": LLM_MODEL,
-            "prompt": prompt,
-            "stream": False,
-            "options": options,
-        },
-        timeout=600,
-    )
+    payload = {
+        "model": LLM_MODEL,
+        "prompt": prompt,
+        "stream": False,
+        "options": options,
+        "think": THINK,
+    }
+    response = requests.post(f"{OLLAMA_HOST}/api/generate", json=payload, timeout=600)
+
+    # Los modelos sin razonamiento rechazan el parámetro; reintentar sin él.
+    if response.status_code == 400 and "think" in response.text.lower():
+        payload.pop("think")
+        response = requests.post(f"{OLLAMA_HOST}/api/generate", json=payload, timeout=600)
+
     response.raise_for_status()
-    return response.json()["response"]
+    data = response.json()
+
+    if data.get("done_reason") == "length":
+        print(
+            "  WARNING: el modelo agotó el contexto antes de terminar; "
+            "la minuta queda incompleta. Subí NUM_CTX."
+        )
+
+    notes = (data.get("response") or "").strip()
+    if not notes:
+        # Los modelos de razonamiento (qwen3.5, deepseek-r1...) mandan el texto a
+        # 'thinking'; si se truncaron pensando, 'response' llega vacío.
+        thinking = (data.get("thinking") or "").strip()
+        if thinking:
+            print(
+                "  WARNING: el modelo solo devolvió razonamiento (sin minuta final); "
+                "se guarda ese texto. Subí NUM_CTX o usá THINK=false."
+            )
+            return thinking
+        raise RuntimeError(
+            "Ollama devolvió una respuesta vacía "
+            f"(done_reason={data.get('done_reason')}); no se escribe el archivo"
+        )
+    return notes
 
 
 def main() -> None:
@@ -120,9 +154,12 @@ def main() -> None:
 
     pending = []
     for p in audio_files:
-        if (output_dir / f"{p.stem}_notas.md").exists():
-            print(f"Saltando {p.name}: ya existe {p.stem}_notas.md")
+        notes_path = output_dir / f"{p.stem}_notas.md"
+        if notes_path.exists() and notes_path.stat().st_size > 0:
+            print(f"Saltando {p.name}: ya existe {notes_path.name}")
         else:
+            if notes_path.exists():
+                print(f"Reprocesando {p.name}: {notes_path.name} está vacío")
             pending.append(p)
 
     skipped = len(audio_files) - len(pending)

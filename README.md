@@ -105,8 +105,9 @@ Si querés compartir un tipo de reunión con el equipo, versioná también un `p
 | `LANGUAGE` | `es` | Idioma de la transcripción |
 | `PROMPT_TEMPLATE` | `general` | Plantilla default cuando el audio no tiene sufijo `__<tipo>` |
 | `LLM_MODEL` | `qwen3.5:9b` | Modelo de Ollama para generar la minuta |
-| `NUM_CTX` | `16384` | Ventana de contexto del LLM en tokens. Si la minuta sale cortada, subilo (32768 para reuniones de +1 h); más contexto = más VRAM |
+| `NUM_CTX` | `32768` | Ventana de contexto del LLM en tokens. Tiene que alojar la transcripción **y** la minuta; si sale cortada, subilo (más contexto = más VRAM) |
 | `NUM_GPU` | *(auto)* | Cantidad de capas del LLM que van a la GPU; el resto corre en CPU/RAM. Vacío = Ollama decide solo |
+| `THINK` | `false` | Razonamiento en modelos que lo soportan (qwen3.5, deepseek-r1…). En `false` el modelo escribe la minuta directo, sin gastar contexto pensando |
 | `OLLAMA_HOST` | `http://localhost:11434` | URL del servidor Ollama |
 
 Ejemplo con overrides:
@@ -150,7 +151,15 @@ La VRAM (16 GB) limita qué modelo y cuánto contexto entran en la GPU, pero no 
 - El contenedor es efímero (`--rm`); los modelos persisten solo gracias a los volúmenes nombrados.
 - Un error en un archivo (audio corrupto, timeout del LLM, etc.) no corta el batch: se loguea y
   se sigue con el siguiente.
-- **Minutas cortadas a mitad de frase:** Ollama usa por defecto una ventana de contexto de 4096
-  tokens; con transcripciones largas trunca la entrada y corta la salida. Por eso la llamada a
-  `/api/generate` pasa `num_ctx` explícito (variable `NUM_CTX`, default 16384). Si aun así sale
-  incompleta, subí `NUM_CTX` — el límite práctico es la VRAM (el KV cache crece con el contexto).
+- **Minutas cortadas o vacías:** el contexto del LLM tiene que alojar la transcripción *y* la
+  minuta. Ollama usa 4096 tokens por defecto, así que la llamada a `/api/generate` pasa `num_ctx`
+  explícito (`NUM_CTX`, default 32768) y reserva 4096 tokens para la respuesta, avisando si el
+  prompt no deja lugar suficiente.
+- **Modelos de razonamiento (qwen3.5, deepseek-r1…):** Ollama devuelve el razonamiento en el campo
+  `thinking` y la respuesta real en `response`. Si el modelo agota el contexto pensando, `response`
+  llega vacío y la minuta sale de 0 bytes. Por eso el pipeline manda `think: false` por defecto
+  (variable `THINK`) y, si aun así `response` viene vacío, guarda el contenido de `thinking` como
+  último recurso. Con modelos que no soportan el parámetro, la llamada se reintenta sin él.
+- **Nunca se escribe un archivo vacío:** si Ollama devuelve una respuesta vacía, el archivo no se
+  crea y el audio se cuenta como fallido. Un `_notas.md` de 0 bytes de una corrida anterior no
+  cuenta como procesado: se regenera solo en la próxima corrida.

@@ -7,8 +7,9 @@ services:
       COMPUTE_TYPE: float16
       LANGUAGE: ${LANGUAGE:-es}
       PROMPT_TEMPLATE: ${PROMPT_TEMPLATE:-general}
-      NUM_CTX: ${NUM_CTX:-16384}
+      NUM_CTX: ${NUM_CTX:-32768}
       NUM_GPU: ${NUM_GPU:-}
+      THINK: ${THINK:-false}
       OLLAMA_FLASH_ATTENTION: ${OLLAMA_FLASH_ATTENTION:-}
       OLLAMA_KV_CACHE_TYPE: ${OLLAMA_KV_CACHE_TYPE:-}
     volumes:
